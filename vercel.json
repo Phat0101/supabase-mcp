@@ -1,6 +1,12 @@
 {
   "version": 2,
-  "buildCommand": "npm run build ",
+  "buildCommand": "npm run build",
+  "builds": [
+    {
+      "src": "run_supabase_mcp_server.js",
+      "use": "@vercel/node"
+    }
+  ],
   "routes": [
     {
       "src": "/(.*)",

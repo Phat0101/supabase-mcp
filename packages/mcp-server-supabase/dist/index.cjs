@@ -1,0 +1,2 @@
+"use strict";Object.defineProperty(exports, "__esModule", {value: true});var _chunkE2XY45Q4cjs = require('./chunk-E2XY45Q4.cjs');exports.createSupabaseMcpServer = _chunkE2XY45Q4cjs.b;
+//# sourceMappingURL=index.cjs.map

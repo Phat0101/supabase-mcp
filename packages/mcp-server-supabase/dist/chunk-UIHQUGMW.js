@@ -1,0 +1,296 @@
+var F={name:"@supabase/mcp-server-supabase",version:"0.4.1",description:"MCP server for interacting with Supabase",license:"Apache-2.0",type:"module",main:"dist/index.cjs",types:"dist/index.d.ts",sideEffects:!1,scripts:{build:"tsup --clean",prepublishOnly:"npm run build",test:"vitest","test:unit":"vitest --project unit","test:e2e":"vitest --project e2e","test:integration":"vitest --project integration","test:coverage":"vitest --coverage","generate:management-api-types":"openapi-typescript https://api.supabase.com/api/v1-json -o ./src/management-api/types.ts"},files:["dist/**/*"],bin:{"mcp-server-supabase":"./dist/stdio.js"},exports:{".":{import:"./dist/index.js",types:"./dist/index.d.ts",default:"./dist/index.cjs"}},dependencies:{"@deno/eszip":"^0.84.0","@modelcontextprotocol/sdk":"^1.4.1","@supabase/mcp-utils":"0.2.0","common-tags":"^1.8.2","openapi-fetch":"^0.13.5",zod:"^3.24.1"},devDependencies:{"@ai-sdk/anthropic":"^1.2.9","@electric-sql/pglite":"^0.2.17","@total-typescript/tsconfig":"^1.0.4","@types/common-tags":"^1.8.4","@types/node":"^22.8.6","@vitest/coverage-v8":"^2.1.9",ai:"^4.3.4","date-fns":"^4.1.0",dotenv:"^16.5.0",msw:"^2.7.3",nanoid:"^5.1.5","openapi-typescript":"^7.5.0","openapi-typescript-helpers":"^0.0.15",prettier:"^3.3.3",tsup:"^8.3.5",tsx:"^4.19.2",typescript:"^5.6.3",vitest:"^2.1.9"}};import{createMcpServer as He}from"@supabase/mcp-utils";import me from"openapi-fetch";import{z as D}from"zod";function P(e,r,t={}){return me({baseUrl:e,headers:{Authorization:`Bearer ${r}`,...t}})}var ue=D.object({message:D.string()});function l(e,r){if("error"in e){if(e.response.status===401)throw new Error("Unauthorized. Please provide a valid access token to the MCP server via the --access-token flag or SUPABASE_ACCESS_TOKEN.");let{data:t}=ue.safeParse(e.error);throw t?new Error(t.message):new Error(r)}}import{tool as O}from"@supabase/mcp-utils";import{z as u}from"zod";var fe=10,he=.01344;async function C(e,r){let t=await e.GET("/v1/organizations/{slug}",{params:{path:{slug:r}}});l(t,"Failed to fetch organization");let o=await e.GET("/v1/projects");l(o,"Failed to fetch projects");let n=t.data,s=o.data.filter(c=>c.organization_id===r&&!["INACTIVE","GOING_DOWN","REMOVED"].includes(c.status)),i=0;return n.plan!=="free"&&s.length>0&&(i=fe),{type:"project",recurrence:"monthly",amount:i}}function x(){return{type:"branch",recurrence:"hourly",amount:he}}function U(e){return Object.fromEntries(e.split(`
+`).map(r=>r.split(/=(.*)/)).filter(([r])=>r).map(([r,t])=>[r,t??""]))}async function A(e,r){let t=JSON.stringify(e,(s,i)=>i&&typeof i=="object"&&!Array.isArray(i)?Object.keys(i).sort().reduce((c,p)=>(c[p]=i[p],c),{}):i),o=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(t));return btoa(String.fromCharCode(...new Uint8Array(o))).slice(0,r)}import{tool as k}from"@supabase/mcp-utils";import"zod";function d({description:e,parameters:r,inject:t,execute:o}){if(!t||Object.values(t).every(s=>s===void 0))return k({description:e,parameters:r,execute:o});let n=Object.fromEntries(Object.entries(t).filter(([s,i])=>i!==void 0).map(([s])=>[s,!0]));return k({description:e,parameters:r.omit(n),execute:s=>o({...s,...t})})}function H({managementApiClient:e,projectId:r}){let t=r;return{create_branch:d({description:"Creates a development branch on a Supabase project. This will apply all migrations from the main project to a fresh branch database. Note that production data will not carry over. The branch will get its own project_id via the resulting project_ref. Use this ID to execute queries and migrations on the branch.",parameters:u.object({project_id:u.string(),name:u.string().default("develop").describe("Name of the branch to create"),confirm_cost_id:u.string({required_error:"User must confirm understanding of costs before creating a branch."}).describe("The cost confirmation ID. Call `confirm_cost` first.")}),inject:{project_id:t},execute:async({project_id:o,name:n,confirm_cost_id:s})=>{let i=x();if(await A(i)!==s)throw new Error("Cost confirmation ID does not match the expected cost of creating a branch.");let p=await e.POST("/v1/projects/{ref}/branches",{params:{path:{ref:o}},body:{branch_name:n}});if(l(p,"Failed to create branch"),p.data.is_default){await e.PATCH("/v1/branches/{branch_id}",{params:{path:{branch_id:p.data.id}},body:{branch_name:"main"}});let m=await e.POST("/v1/projects/{ref}/branches",{params:{path:{ref:o}},body:{branch_name:n}});return l(m,"Failed to create branch"),m.data}return p.data}}),list_branches:d({description:"Lists all development branches of a Supabase project. This will return branch details including status which you can use to check when operations like merge/rebase/reset complete.",parameters:u.object({project_id:u.string()}),inject:{project_id:t},execute:async({project_id:o})=>{let n=await e.GET("/v1/projects/{ref}/branches",{params:{path:{ref:o}}});return n.response.status===422?[]:(l(n,"Failed to list branches"),n.data)}}),delete_branch:O({description:"Deletes a development branch.",parameters:u.object({branch_id:u.string()}),execute:async({branch_id:o})=>{let n=await e.DELETE("/v1/branches/{branch_id}",{params:{path:{branch_id:o}}});return l(n,"Failed to delete branch"),n.data}}),merge_branch:O({description:"Merges migrations and edge functions from a development branch to production.",parameters:u.object({branch_id:u.string()}),execute:async({branch_id:o})=>{let n=await e.POST("/v1/branches/{branch_id}/merge",{params:{path:{branch_id:o}},body:{}});return l(n,"Failed to merge branch"),n.data}}),reset_branch:O({description:"Resets migrations of a development branch. Any untracked data or schema changes will be lost.",parameters:u.object({branch_id:u.string(),migration_version:u.string().optional().describe("Reset your development branch to a specific migration version.")}),execute:async({branch_id:o,migration_version:n})=>{let s=await e.POST("/v1/branches/{branch_id}/reset",{params:{path:{branch_id:o}},body:{migration_version:n}});return l(s,"Failed to reset branch"),s.data}}),rebase_branch:O({description:"Rebases a development branch on production. This will effectively run any newer migrations from production onto this branch to help handle migration drift.",parameters:u.object({branch_id:u.string()}),execute:async({branch_id:o})=>{let n=await e.POST("/v1/branches/{branch_id}/push",{params:{path:{branch_id:o}},body:{}});return l(n,"Failed to rebase branch"),n.data}})}}import{z as f}from"zod";import{stripIndent as W}from"common-tags";var G=`-- Adapted from information_schema.columns
+
+SELECT
+  c.oid :: int8 AS table_id,
+  nc.nspname AS schema,
+  c.relname AS table,
+  (c.oid || '.' || a.attnum) AS id,
+  a.attnum AS ordinal_position,
+  a.attname AS name,
+  CASE
+    WHEN a.atthasdef THEN pg_get_expr(ad.adbin, ad.adrelid)
+    ELSE NULL
+  END AS default_value,
+  CASE
+    WHEN t.typtype = 'd' THEN CASE
+      WHEN bt.typelem <> 0 :: oid
+      AND bt.typlen = -1 THEN 'ARRAY'
+      WHEN nbt.nspname = 'pg_catalog' THEN format_type(t.typbasetype, NULL)
+      ELSE 'USER-DEFINED'
+    END
+    ELSE CASE
+      WHEN t.typelem <> 0 :: oid
+      AND t.typlen = -1 THEN 'ARRAY'
+      WHEN nt.nspname = 'pg_catalog' THEN format_type(a.atttypid, NULL)
+      ELSE 'USER-DEFINED'
+    END
+  END AS data_type,
+  COALESCE(bt.typname, t.typname) AS format,
+  a.attidentity IN ('a', 'd') AS is_identity,
+  CASE
+    a.attidentity
+    WHEN 'a' THEN 'ALWAYS'
+    WHEN 'd' THEN 'BY DEFAULT'
+    ELSE NULL
+  END AS identity_generation,
+  a.attgenerated IN ('s') AS is_generated,
+  NOT (
+    a.attnotnull
+    OR t.typtype = 'd' AND t.typnotnull
+  ) AS is_nullable,
+  (
+    c.relkind IN ('r', 'p')
+    OR c.relkind IN ('v', 'f') AND pg_column_is_updatable(c.oid, a.attnum, FALSE)
+  ) AS is_updatable,
+  uniques.table_id IS NOT NULL AS is_unique,
+  check_constraints.definition AS "check",
+  array_to_json(
+    array(
+      SELECT
+        enumlabel
+      FROM
+        pg_catalog.pg_enum enums
+      WHERE
+        enums.enumtypid = coalesce(bt.oid, t.oid)
+        OR enums.enumtypid = coalesce(bt.typelem, t.typelem)
+      ORDER BY
+        enums.enumsortorder
+    )
+  ) AS enums,
+  col_description(c.oid, a.attnum) AS comment
+FROM
+  pg_attribute a
+  LEFT JOIN pg_attrdef ad ON a.attrelid = ad.adrelid
+  AND a.attnum = ad.adnum
+  JOIN (
+    pg_class c
+    JOIN pg_namespace nc ON c.relnamespace = nc.oid
+  ) ON a.attrelid = c.oid
+  JOIN (
+    pg_type t
+    JOIN pg_namespace nt ON t.typnamespace = nt.oid
+  ) ON a.atttypid = t.oid
+  LEFT JOIN (
+    pg_type bt
+    JOIN pg_namespace nbt ON bt.typnamespace = nbt.oid
+  ) ON t.typtype = 'd'
+  AND t.typbasetype = bt.oid
+  LEFT JOIN (
+    SELECT DISTINCT ON (table_id, ordinal_position)
+      conrelid AS table_id,
+      conkey[1] AS ordinal_position
+    FROM pg_catalog.pg_constraint
+    WHERE contype = 'u' AND cardinality(conkey) = 1
+  ) AS uniques ON uniques.table_id = c.oid AND uniques.ordinal_position = a.attnum
+  LEFT JOIN (
+    -- We only select the first column check
+    SELECT DISTINCT ON (table_id, ordinal_position)
+      conrelid AS table_id,
+      conkey[1] AS ordinal_position,
+      substring(
+        pg_get_constraintdef(pg_constraint.oid, true),
+        8,
+        length(pg_get_constraintdef(pg_constraint.oid, true)) - 8
+      ) AS "definition"
+    FROM pg_constraint
+    WHERE contype = 'c' AND cardinality(conkey) = 1
+    ORDER BY table_id, ordinal_position, oid asc
+  ) AS check_constraints ON check_constraints.table_id = c.oid AND check_constraints.ordinal_position = a.attnum
+WHERE
+  NOT pg_is_other_temp_schema(nc.oid)
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+  AND (c.relkind IN ('r', 'v', 'm', 'f', 'p'))
+  AND (
+    pg_has_role(c.relowner, 'USAGE')
+    OR has_column_privilege(
+      c.oid,
+      a.attnum,
+      'SELECT, INSERT, UPDATE, REFERENCES'
+    )
+  )
+`;var z=`SELECT
+  e.name,
+  n.nspname AS schema,
+  e.default_version,
+  x.extversion AS installed_version,
+  e.comment
+FROM
+  pg_available_extensions() e(name, default_version, comment)
+  LEFT JOIN pg_extension x ON e.name = x.extname
+  LEFT JOIN pg_namespace n ON x.extnamespace = n.oid
+`;var B=`SELECT
+  c.oid :: int8 AS id,
+  nc.nspname AS schema,
+  c.relname AS name,
+  c.relrowsecurity AS rls_enabled,
+  c.relforcerowsecurity AS rls_forced,
+  CASE
+    WHEN c.relreplident = 'd' THEN 'DEFAULT'
+    WHEN c.relreplident = 'i' THEN 'INDEX'
+    WHEN c.relreplident = 'f' THEN 'FULL'
+    ELSE 'NOTHING'
+  END AS replica_identity,
+  pg_total_relation_size(format('%I.%I', nc.nspname, c.relname)) :: int8 AS bytes,
+  pg_size_pretty(
+    pg_total_relation_size(format('%I.%I', nc.nspname, c.relname))
+  ) AS size,
+  pg_stat_get_live_tuples(c.oid) AS live_rows_estimate,
+  pg_stat_get_dead_tuples(c.oid) AS dead_rows_estimate,
+  obj_description(c.oid) AS comment,
+  coalesce(pk.primary_keys, '[]') as primary_keys,
+  coalesce(
+    jsonb_agg(relationships) filter (where relationships is not null),
+    '[]'
+  ) as relationships
+FROM
+  pg_namespace nc
+  JOIN pg_class c ON nc.oid = c.relnamespace
+  left join (
+    select
+      table_id,
+      jsonb_agg(_pk.*) as primary_keys
+    from (
+      select
+        n.nspname as schema,
+        c.relname as table_name,
+        a.attname as name,
+        c.oid :: int8 as table_id
+      from
+        pg_index i,
+        pg_class c,
+        pg_attribute a,
+        pg_namespace n
+      where
+        i.indrelid = c.oid
+        and c.relnamespace = n.oid
+        and a.attrelid = c.oid
+        and a.attnum = any (i.indkey)
+        and i.indisprimary
+    ) as _pk
+    group by table_id
+  ) as pk
+  on pk.table_id = c.oid
+  left join (
+    select
+      c.oid :: int8 as id,
+      c.conname as constraint_name,
+      nsa.nspname as source_schema,
+      csa.relname as source_table_name,
+      sa.attname as source_column_name,
+      nta.nspname as target_table_schema,
+      cta.relname as target_table_name,
+      ta.attname as target_column_name
+    from
+      pg_constraint c
+    join (
+      pg_attribute sa
+      join pg_class csa on sa.attrelid = csa.oid
+      join pg_namespace nsa on csa.relnamespace = nsa.oid
+    ) on sa.attrelid = c.conrelid and sa.attnum = any (c.conkey)
+    join (
+      pg_attribute ta
+      join pg_class cta on ta.attrelid = cta.oid
+      join pg_namespace nta on cta.relnamespace = nta.oid
+    ) on ta.attrelid = c.confrelid and ta.attnum = any (c.confkey)
+    where
+      c.contype = 'f'
+  ) as relationships
+  on (relationships.source_schema = nc.nspname and relationships.source_table_name = c.relname)
+  or (relationships.target_table_schema = nc.nspname and relationships.target_table_name = c.relname)
+WHERE
+  c.relkind IN ('r', 'p')
+  AND NOT pg_is_other_temp_schema(nc.oid)
+  AND (
+    pg_has_role(c.relowner, 'USAGE')
+    OR has_table_privilege(
+      c.oid,
+      'SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER'
+    )
+    OR has_any_column_privilege(c.oid, 'SELECT, INSERT, UPDATE, REFERENCES')
+  )
+group by
+  c.oid,
+  c.relname,
+  c.relrowsecurity,
+  c.relforcerowsecurity,
+  c.relreplident,
+  nc.nspname,
+  pk.primary_keys
+`;var Ee=["information_schema","pg_catalog","pg_toast","_timescaledb_internal"];function q(e=[]){let r=W`
+    with
+      tables as (${B}),
+      columns as (${G})
+    select
+      *,
+      ${Se("columns","columns.table_id = tables.id")}
+    from tables
+  `;return r+=`
+`,e.length>0?r+=`where schema in (${e.map(t=>`'${t}'`).join(",")})`:r+=`where schema not in (${Ee.map(t=>`'${t}'`).join(",")})`,r}function K(){return z}var Se=(e,r)=>W`
+    COALESCE(
+      (
+        SELECT
+          array_agg(row_to_json(${e})) FILTER (WHERE ${r})
+        FROM
+          ${e}
+      ),
+      '{}'
+    ) AS ${e}
+  `;import{z as a}from"zod";var Te=a.object({schema:a.string(),table_name:a.string(),name:a.string(),table_id:a.number().int()}),je=a.object({id:a.number().int(),constraint_name:a.string(),source_schema:a.string(),source_table_name:a.string(),source_column_name:a.string(),target_table_schema:a.string(),target_table_name:a.string(),target_column_name:a.string()}),Ae=a.object({table_id:a.number().int(),schema:a.string(),table:a.string(),id:a.string().regex(/^(\d+)\.(\d+)$/),ordinal_position:a.number().int(),name:a.string(),default_value:a.any(),data_type:a.string(),format:a.string(),is_identity:a.boolean(),identity_generation:a.union([a.literal("ALWAYS"),a.literal("BY DEFAULT"),a.null()]),is_generated:a.boolean(),is_nullable:a.boolean(),is_updatable:a.boolean(),is_unique:a.boolean(),enums:a.array(a.string()),check:a.union([a.string(),a.null()]),comment:a.union([a.string(),a.null()])}),$=a.object({id:a.number().int(),schema:a.string(),name:a.string(),rls_enabled:a.boolean(),rls_forced:a.boolean(),replica_identity:a.union([a.literal("DEFAULT"),a.literal("INDEX"),a.literal("FULL"),a.literal("NOTHING")]),bytes:a.number().int(),size:a.string(),live_rows_estimate:a.number().int(),dead_rows_estimate:a.number().int(),comment:a.string().nullable(),columns:a.array(Ae).optional(),primary_keys:a.array(Te),relationships:a.array(je)}),J=a.object({name:a.string(),schema:a.union([a.string(),a.null()]),default_version:a.string(),installed_version:a.union([a.string(),a.null()]),comment:a.union([a.string(),a.null()])});function Y({managementApiClient:e,projectId:r,readOnly:t}){async function o(i,c){let p=await e.POST("/v1/projects/{ref}/database/query",{params:{path:{ref:i}},body:{query:c,read_only:t}});return l(p,"Failed to execute SQL query"),p.data}let n=r;return{list_tables:d({description:"Lists all tables in one or more schemas.",parameters:f.object({project_id:f.string(),schemas:f.array(f.string()).describe("List of schemas to include. Defaults to all schemas.").default(["public"])}),inject:{project_id:n},execute:async({project_id:i,schemas:c})=>{let p=q(c);return(await o(i,p)).map(h=>$.parse(h))}}),list_extensions:d({description:"Lists all extensions in the database.",parameters:f.object({project_id:f.string()}),inject:{project_id:n},execute:async({project_id:i})=>{let c=K();return(await o(i,c)).map(_=>J.parse(_))}}),list_migrations:d({description:"Lists all migrations in the database.",parameters:f.object({project_id:f.string()}),inject:{project_id:n},execute:async({project_id:i})=>{let c=await e.GET("/v1/projects/{ref}/database/migrations",{params:{path:{ref:i}}});return l(c,"Failed to fetch migrations"),c.data}}),apply_migration:d({description:"Applies a migration to the database. Use this when executing DDL operations. Do not hardcode references to generated IDs in data migrations.",parameters:f.object({project_id:f.string(),name:f.string().describe("The name of the migration in snake_case"),query:f.string().describe("The SQL query to apply")}),inject:{project_id:n},execute:async({project_id:i,name:c,query:p})=>{if(t)throw new Error("Cannot apply migration in read-only mode.");let m=await e.POST("/v1/projects/{ref}/database/migrations",{params:{path:{ref:i}},body:{name:c,query:p}});return l(m,"Failed to apply migration"),m.data}}),execute_sql:d({description:"Executes raw SQL in the Postgres database. Use `apply_migration` instead for DDL operations.",parameters:f.object({project_id:f.string(),query:f.string().describe("The SQL query to execute")}),inject:{project_id:n},execute:async({query:i,project_id:c})=>await o(c,i)})}}import{z as I}from"zod";import{stripIndent as S}from"common-tags";function V(e,r=100){switch(e){case"api":return S`
+        select id, identifier, timestamp, event_message, request.method, request.path, response.status_code
+        from edge_logs
+        cross join unnest(metadata) as m
+        cross join unnest(m.request) as request
+        cross join unnest(m.response) as response
+        order by timestamp desc
+        limit ${r}
+      `;case"branch-action":return S`
+        select workflow_run, workflow_run_logs.timestamp, id, event_message from workflow_run_logs
+        order by timestamp desc
+        limit ${r}
+      `;case"postgres":return S`
+        select identifier, postgres_logs.timestamp, id, event_message, parsed.error_severity from postgres_logs
+        cross join unnest(metadata) as m
+        cross join unnest(m.parsed) as parsed
+        order by timestamp desc
+        limit ${r}
+      `;case"edge-function":return S`
+        select id, function_edge_logs.timestamp, event_message, response.status_code, request.method, m.function_id, m.execution_time_ms, m.deployment_id, m.version from function_edge_logs
+        cross join unnest(metadata) as m
+        cross join unnest(m.response) as response
+        cross join unnest(m.request) as request
+        order by timestamp desc
+        limit ${r}
+      `;case"auth":return S`
+        select id, auth_logs.timestamp, event_message, metadata.level, metadata.status, metadata.path, metadata.msg as msg, metadata.error from auth_logs
+        cross join unnest(metadata) as metadata
+        order by timestamp desc
+        limit ${r}
+      `;case"storage":return S`
+        select id, storage_logs.timestamp, event_message from storage_logs
+        order by timestamp desc
+        limit ${r}
+      `;case"realtime":return S`
+        select id, realtime_logs.timestamp, event_message from realtime_logs
+        order by timestamp desc
+        limit ${r}
+      `;default:throw new Error(`unsupported log service type: ${e}`)}}function Z({managementApiClient:e,projectId:r}){let t=r;return{get_logs:d({description:"Gets logs for a Supabase project by service type. Use this to help debug problems with your app. This will only return logs within the last minute. If the logs you are looking for are older than 1 minute, re-run your test to reproduce them.",parameters:I.object({project_id:I.string(),service:I.enum(["api","branch-action","postgres","edge-function","auth","storage","realtime"]).describe("The service to fetch logs for")}),inject:{project_id:t},execute:async({project_id:o,service:n})=>{let s=n==="branch-action"?new Date(Date.now()-3e5):void 0,i=await e.GET("/v1/projects/{ref}/analytics/endpoints/logs.all",{params:{path:{ref:o},query:{iso_timestamp_start:s?.toISOString(),sql:V(n)}}});return l(i,"Failed to fetch logs"),i.data}})}}import{z as T}from"zod";function Q({managementApiClient:e,projectId:r}){let t=r;return{get_project_url:d({description:"Gets the API URL for a project.",parameters:T.object({project_id:T.string()}),inject:{project_id:t},execute:async({project_id:o})=>`https://${o}.supabase.co`}),get_anon_key:d({description:"Gets the anonymous API key for a project.",parameters:T.object({project_id:T.string()}),inject:{project_id:t},execute:async({project_id:o})=>{let n=await e.GET("/v1/projects/{ref}/api-keys",{params:{path:{ref:o},query:{reveal:!1}}});l(n,"Failed to fetch API keys");let s=n.data?.find(i=>i.name==="anon");if(!s)throw new Error("Anonymous key not found");return s.api_key}}),generate_typescript_types:d({description:"Generates TypeScript types for a project.",parameters:T.object({project_id:T.string()}),inject:{project_id:t},execute:async({project_id:o})=>{let n=await e.GET("/v1/projects/{ref}/types/typescript",{params:{path:{ref:o}}});return l(n,"Failed to fetch TypeScript types"),n.data}})}}import{z as y}from"zod";import{codeBlock as Re}from"common-tags";import{fileURLToPath as ee}from"node:url";import{build as Lt,Parser as we}from"@deno/eszip";import{join as Ft,relative as Ne}from"node:path/posix";import{fileURLToPath as xe}from"node:url";import{z as b}from"zod";var w=await we.createInstance(),Oe=b.object({version:b.number(),sources:b.array(b.string()),sourcesContent:b.array(b.string()).optional(),names:b.array(b.string()),mappings:b.string()});async function X(e,r="/"){let t=[];if(e instanceof ReadableStream){let s=e.getReader({mode:"byob"});t=await w.parse(s)}else t=await w.parseBytes(e);await w.load();let o=t.filter(s=>s.startsWith("file://"));return await Promise.all(o.map(async s=>{let i=await w.getModuleSource(s),c=await w.getModuleSourceMap(s),p=Ne(r,xe(s,{windows:!1})),m=new File([i],p,{type:"text/plain"});if(!c)return m;let _=Oe.parse(JSON.parse(c)),[h]=_.sourcesContent??[];return h?new File([h],p,{type:"application/typescript"}):m}))}function Ce(e,r,t){return`${e}_${r}_${t}`}function Ie(e){return`/tmp/user_fn_${e}/`}var te=Re`
+  import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+
+  Deno.serve(async (req: Request) => {
+    const data = {
+      message: "Hello there!"
+    };
+    
+    return new Response(JSON.stringify(data), {
+      headers: {
+        'Content-Type': 'application/json',
+        'Connection': 'keep-alive'
+      }
+    });
+  });
+`;async function v(e,r,t){let o=await e.GET("/v1/projects/{ref}/functions/{function_slug}",{params:{path:{ref:r,function_slug:t}}});if(o.error)return{data:void 0,error:o.error};l(o,"Failed to fetch Edge Function");let n=o.data,s=Ce(r,n.id,n.version),i=Ie(s),c=n.entrypoint_path?ee(n.entrypoint_path,{windows:!1}).replace(i,""):void 0,p=n.import_map_path?ee(n.import_map_path,{windows:!1}).replace(i,""):void 0,m=await e.GET("/v1/projects/{ref}/functions/{function_slug}/body",{params:{path:{ref:r,function_slug:t}},parseAs:"arrayBuffer"});l(m,"Failed to fetch Edge Function eszip bundle");let _=await X(new Uint8Array(m.data),i),h=await Promise.all(_.map(async N=>({name:N.name,content:await N.text()})));return{data:{...n,entrypoint_path:c,import_map_path:p,files:h},error:void 0}}function ne({managementApiClient:e,projectId:r}){let t=r;return{list_edge_functions:d({description:"Lists all Edge Functions in a Supabase project.",parameters:y.object({project_id:y.string()}),inject:{project_id:t},execute:async({project_id:o})=>{let n=await e.GET("/v1/projects/{ref}/functions",{params:{path:{ref:o}}});return l(n,"Failed to fetch Edge Functions"),await Promise.all(n.data.map(async i=>{let{data:c,error:p}=await v(e,o,i.slug);if(p)throw p;return c}))}}),deploy_edge_function:d({description:`Deploys an Edge Function to a Supabase project. If the function already exists, this will create a new version. Example:
+
+${te}`,parameters:y.object({project_id:y.string(),name:y.string().describe("The name of the function"),entrypoint_path:y.string().default("index.ts").describe("The entrypoint of the function"),import_map_path:y.string().describe("The import map for the function.").optional(),files:y.array(y.object({name:y.string(),content:y.string()})).describe("The files to upload. This should include the entrypoint and any relative dependencies.")}),inject:{project_id:t},execute:async({project_id:o,name:n,entrypoint_path:s,import_map_path:i,files:c})=>{let{data:p}=await v(e,o,n),m=c.find(h=>["deno.json","import_map.json"].includes(h.name));i??=p?.import_map_path??m?.name;let _=await e.POST("/v1/projects/{ref}/functions/deploy",{params:{path:{ref:o},query:{slug:n}},body:{metadata:{name:n,entrypoint_path:s,import_map_path:i},file:c},bodySerializer(h){let j=new FormData,N=new Blob([JSON.stringify(h.metadata)],{type:"application/json"});return j.append("metadata",N),h.file?.forEach(pe=>{let M=pe,ge=new Blob([M.content],{type:"application/typescript"});j.append("file",ge,M.name)}),j}});return l(_,"Failed to deploy Edge Function"),_.data}})}}import{tool as E}from"@supabase/mcp-utils";import{z as g}from"zod";var ve="ABCDEFGHIJKLMNOPQRSTUVWXYZ",Le="abcdefghijklmnopqrstuvwxyz",Me="0123456789",Fe="!@#$%^&*()_+~`|}{[]:;?><,./-=",ae=({length:e=10,numbers:r=!1,symbols:t=!1,uppercase:o=!0,lowercase:n=!0}={})=>{let s="";if(o&&(s+=ve),n&&(s+=Le),r&&(s+=Me),t&&(s+=Fe),s.length===0)throw new Error("at least one character set must be selected");let i=new Uint32Array(e);crypto.getRandomValues(i);let c="";for(let p=0;p<e;p++){let m=i[p]%s.length;c+=s.charAt(m)}return c};var De=6371,Pe="https://www.cloudflare.com/cdn-cgi/trace",Ue={AF:{lat:33,lng:65},AX:{lat:60.116667,lng:19.9},AL:{lat:41,lng:20},DZ:{lat:28,lng:3},AS:{lat:-14.3333,lng:-170},AD:{lat:42.5,lng:1.6},AO:{lat:-12.5,lng:18.5},AI:{lat:18.25,lng:-63.1667},AQ:{lat:-90,lng:0},AG:{lat:17.05,lng:-61.8},AR:{lat:-34,lng:-64},AM:{lat:40,lng:45},AW:{lat:12.5,lng:-69.9667},AU:{lat:-27,lng:133},AT:{lat:47.3333,lng:13.3333},AZ:{lat:40.5,lng:47.5},BS:{lat:24.25,lng:-76},BH:{lat:26,lng:50.55},BD:{lat:24,lng:90},BB:{lat:13.1667,lng:-59.5333},BY:{lat:53,lng:28},BE:{lat:50.8333,lng:4},BZ:{lat:17.25,lng:-88.75},BJ:{lat:9.5,lng:2.25},BM:{lat:32.3333,lng:-64.75},BT:{lat:27.5,lng:90.5},BO:{lat:-17,lng:-65},BQ:{lat:12.183333,lng:-68.233333},BA:{lat:44,lng:18},BW:{lat:-22,lng:24},BV:{lat:-54.4333,lng:3.4},BR:{lat:-10,lng:-55},IO:{lat:-6,lng:71.5},BN:{lat:4.5,lng:114.6667},BG:{lat:43,lng:25},BF:{lat:13,lng:-2},MM:{lat:22,lng:98},BI:{lat:-3.5,lng:30},KH:{lat:13,lng:105},CM:{lat:6,lng:12},CA:{lat:60,lng:-95},CV:{lat:16,lng:-24},KY:{lat:19.5,lng:-80.5},CF:{lat:7,lng:21},TD:{lat:15,lng:19},CL:{lat:-30,lng:-71},CN:{lat:35,lng:105},CX:{lat:-10.5,lng:105.6667},CC:{lat:-12.5,lng:96.8333},CO:{lat:4,lng:-72},KM:{lat:-12.1667,lng:44.25},CD:{lat:0,lng:25},CG:{lat:-1,lng:15},CK:{lat:-21.2333,lng:-159.7667},CR:{lat:10,lng:-84},CI:{lat:8,lng:-5},HR:{lat:45.1667,lng:15.5},CU:{lat:21.5,lng:-80},CW:{lat:12.166667,lng:-68.966667},CY:{lat:35,lng:33},CZ:{lat:49.75,lng:15.5},DK:{lat:56,lng:10},DJ:{lat:11.5,lng:43},DM:{lat:15.4167,lng:-61.3333},DO:{lat:19,lng:-70.6667},EC:{lat:-2,lng:-77.5},EG:{lat:27,lng:30},SV:{lat:13.8333,lng:-88.9167},GQ:{lat:2,lng:10},ER:{lat:15,lng:39},EE:{lat:59,lng:26},ET:{lat:8,lng:38},FK:{lat:-51.75,lng:-59},FO:{lat:62,lng:-7},FJ:{lat:-18,lng:175},FI:{lat:64,lng:26},FR:{lat:46,lng:2},GF:{lat:4,lng:-53},PF:{lat:-15,lng:-140},TF:{lat:-43,lng:67},GA:{lat:-1,lng:11.75},GM:{lat:13.4667,lng:-16.5667},GE:{lat:42,lng:43.5},DE:{lat:51,lng:9},GH:{lat:8,lng:-2},GI:{lat:36.1833,lng:-5.3667},GR:{lat:39,lng:22},GL:{lat:72,lng:-40},GD:{lat:12.1167,lng:-61.6667},GP:{lat:16.25,lng:-61.5833},GU:{lat:13.4667,lng:144.7833},GT:{lat:15.5,lng:-90.25},GG:{lat:49.5,lng:-2.56},GW:{lat:12,lng:-15},GN:{lat:11,lng:-10},GY:{lat:5,lng:-59},HT:{lat:19,lng:-72.4167},HM:{lat:-53.1,lng:72.5167},VA:{lat:41.9,lng:12.45},HN:{lat:15,lng:-86.5},HK:{lat:22.25,lng:114.1667},HU:{lat:47,lng:20},IS:{lat:65,lng:-18},IN:{lat:20,lng:77},ID:{lat:-5,lng:120},IR:{lat:32,lng:53},IQ:{lat:33,lng:44},IE:{lat:53,lng:-8},IM:{lat:54.23,lng:-4.55},IL:{lat:31.5,lng:34.75},IT:{lat:42.8333,lng:12.8333},JM:{lat:18.25,lng:-77.5},JP:{lat:36,lng:138},JE:{lat:49.21,lng:-2.13},JO:{lat:31,lng:36},KZ:{lat:48,lng:68},KE:{lat:1,lng:38},KI:{lat:1.4167,lng:173},KP:{lat:40,lng:127},KR:{lat:37,lng:127.5},XK:{lat:42.583333,lng:21},KW:{lat:29.3375,lng:47.6581},KG:{lat:41,lng:75},LA:{lat:18,lng:105},LV:{lat:57,lng:25},LB:{lat:33.8333,lng:35.8333},LS:{lat:-29.5,lng:28.5},LR:{lat:6.5,lng:-9.5},LY:{lat:25,lng:17},LI:{lat:47.1667,lng:9.5333},LT:{lat:56,lng:24},LU:{lat:49.75,lng:6.1667},MO:{lat:22.1667,lng:113.55},MK:{lat:41.8333,lng:22},MG:{lat:-20,lng:47},MW:{lat:-13.5,lng:34},MY:{lat:2.5,lng:112.5},MV:{lat:3.25,lng:73},ML:{lat:17,lng:-4},MT:{lat:35.8333,lng:14.5833},MH:{lat:9,lng:168},MQ:{lat:14.6667,lng:-61},MR:{lat:20,lng:-12},MU:{lat:-20.2833,lng:57.55},YT:{lat:-12.8333,lng:45.1667},MX:{lat:23,lng:-102},FM:{lat:6.9167,lng:158.25},MD:{lat:47,lng:29},MC:{lat:43.7333,lng:7.4},MN:{lat:46,lng:105},ME:{lat:42,lng:19},MS:{lat:16.75,lng:-62.2},MA:{lat:32,lng:-5},MZ:{lat:-18.25,lng:35},NA:{lat:-22,lng:17},NR:{lat:-.5333,lng:166.9167},NP:{lat:28,lng:84},AN:{lat:12.25,lng:-68.75},NL:{lat:52.5,lng:5.75},NC:{lat:-21.5,lng:165.5},NZ:{lat:-41,lng:174},NI:{lat:13,lng:-85},NE:{lat:16,lng:8},NG:{lat:10,lng:8},NU:{lat:-19.0333,lng:-169.8667},NF:{lat:-29.0333,lng:167.95},MP:{lat:15.2,lng:145.75},NO:{lat:62,lng:10},OM:{lat:21,lng:57},PK:{lat:30,lng:70},PW:{lat:7.5,lng:134.5},PS:{lat:32,lng:35.25},PA:{lat:9,lng:-80},PG:{lat:-6,lng:147},PY:{lat:-23,lng:-58},PE:{lat:-10,lng:-76},PH:{lat:13,lng:122},PN:{lat:-24.7,lng:-127.4},PL:{lat:52,lng:20},PT:{lat:39.5,lng:-8},PR:{lat:18.25,lng:-66.5},QA:{lat:25.5,lng:51.25},RE:{lat:-21.1,lng:55.6},RO:{lat:46,lng:25},RU:{lat:60,lng:100},RW:{lat:-2,lng:30},BL:{lat:17.897728,lng:-62.834244},SH:{lat:-15.9333,lng:-5.7},KN:{lat:17.3333,lng:-62.75},LC:{lat:13.8833,lng:-61.1333},MF:{lat:18.075278,lng:-63.06},PM:{lat:46.8333,lng:-56.3333},VC:{lat:13.25,lng:-61.2},WS:{lat:-13.5833,lng:-172.3333},SM:{lat:43.7667,lng:12.4167},ST:{lat:1,lng:7},SA:{lat:25,lng:45},SN:{lat:14,lng:-14},RS:{lat:44,lng:21},SC:{lat:-4.5833,lng:55.6667},SL:{lat:8.5,lng:-11.5},SG:{lat:1.3667,lng:103.8},SX:{lat:18.033333,lng:-63.05},SK:{lat:48.6667,lng:19.5},SI:{lat:46,lng:15},SB:{lat:-8,lng:159},SO:{lat:10,lng:49},ZA:{lat:-29,lng:24},GS:{lat:-54.5,lng:-37},SS:{lat:8,lng:30},ES:{lat:40,lng:-4},LK:{lat:7,lng:81},SD:{lat:15,lng:30},SR:{lat:4,lng:-56},SJ:{lat:78,lng:20},SZ:{lat:-26.5,lng:31.5},SE:{lat:62,lng:15},CH:{lat:47,lng:8},SY:{lat:35,lng:38},TW:{lat:23.5,lng:121},TJ:{lat:39,lng:71},TZ:{lat:-6,lng:35},TH:{lat:15,lng:100},TL:{lat:-8.55,lng:125.5167},TG:{lat:8,lng:1.1667},TK:{lat:-9,lng:-172},TO:{lat:-20,lng:-175},TT:{lat:11,lng:-61},TN:{lat:34,lng:9},TR:{lat:39,lng:35},TM:{lat:40,lng:60},TC:{lat:21.75,lng:-71.5833},TV:{lat:-8,lng:178},UG:{lat:1,lng:32},UA:{lat:49,lng:32},AE:{lat:24,lng:54},GB:{lat:54,lng:-2},UM:{lat:19.2833,lng:166.6},US:{lat:38,lng:-97},UY:{lat:-33,lng:-56},UZ:{lat:41,lng:64},VU:{lat:-16,lng:167},VE:{lat:8,lng:-66},VN:{lat:16,lng:106},VG:{lat:18.5,lng:-64.5},VI:{lat:18.3333,lng:-64.8333},WF:{lat:-13.3,lng:-176.2},EH:{lat:24.5,lng:-13},YE:{lat:15,lng:48},ZM:{lat:-15,lng:30},ZW:{lat:-20,lng:30}},L={WEST_US:{code:"us-west-1",displayName:"West US (North California)",location:{lat:37.774929,lng:-122.419418}},EAST_US:{code:"us-east-1",displayName:"East US (North Virginia)",location:{lat:37.926868,lng:-78.024902}},EAST_US_2:{code:"us-east-2",displayName:"East US (Ohio)",location:{lat:39.9612,lng:-82.9988}},CENTRAL_CANADA:{code:"ca-central-1",displayName:"Canada (Central)",location:{lat:56.130367,lng:-106.346771}},WEST_EU:{code:"eu-west-1",displayName:"West EU (Ireland)",location:{lat:53.3498,lng:-6.2603}},WEST_EU_2:{code:"eu-west-2",displayName:"West Europe (London)",location:{lat:51.507351,lng:-.127758}},WEST_EU_3:{code:"eu-west-3",displayName:"West EU (Paris)",location:{lat:2.352222,lng:48.856613}},CENTRAL_EU:{code:"eu-central-1",displayName:"Central EU (Frankfurt)",location:{lat:50.110924,lng:8.682127}},CENTRAL_EU_2:{code:"eu-central-2",displayName:"Central Europe (Zurich)",location:{lat:47.3744489,lng:8.5410422}},NORTH_EU:{code:"eu-north-1",displayName:"North EU (Stockholm)",location:{lat:59.3251172,lng:18.0710935}},SOUTH_ASIA:{code:"ap-south-1",displayName:"South Asia (Mumbai)",location:{lat:18.9733536,lng:72.8281049}},SOUTHEAST_ASIA:{code:"ap-southeast-1",displayName:"Southeast Asia (Singapore)",location:{lat:1.357107,lng:103.8194992}},NORTHEAST_ASIA:{code:"ap-northeast-1",displayName:"Northeast Asia (Tokyo)",location:{lat:35.6895,lng:139.6917}},NORTHEAST_ASIA_2:{code:"ap-northeast-2",displayName:"Northeast Asia (Seoul)",location:{lat:37.5665,lng:126.978}},OCEANIA:{code:"ap-southeast-2",displayName:"Oceania (Sydney)",location:{lat:-33.8688,lng:151.2093}},SOUTH_AMERICA:{code:"sa-east-1",displayName:"South America (S\xE3o Paulo)",location:{lat:-1.2043218,lng:-47.1583944}}},oe=Object.values(L).map(e=>e.code);function re(e){let t=Object.entries(L).map(([n,s])=>[n,ke(e,s.location)]).reduce((n,s)=>n===void 0||s[1]<n[1]?s:n,void 0);if(!t)throw new Error("no closest region found");let[o]=t;return L[o]}async function se(){let r=await(await fetch(Pe)).text(),o=U(r).loc;if(!o)throw new Error("location not found");return o}function ie(e){let r=Ue[e];if(!r)throw new Error(`unknown location code: ${e}`);return r}function ke(e,r){let t=R(r.lat-e.lat),o=R(r.lng-e.lng),n=Math.sin(t/2)*Math.sin(t/2)+Math.cos(R(e.lat))*Math.cos(R(r.lat))*Math.sin(o/2)*Math.sin(o/2),s=2*Math.atan2(Math.sqrt(n),Math.sqrt(1-n));return De*s}function R(e){return e*(Math.PI/180)}function le({managementApiClient:e}){async function r(){return re(ie(await se())).code}return{list_organizations:E({description:"Lists all organizations that the user is a member of.",parameters:g.object({}),execute:async()=>{let t=await e.GET("/v1/organizations");return l(t,"Failed to fetch organizations"),t.data}}),get_organization:E({description:"Gets details for an organization. Includes subscription plan.",parameters:g.object({id:g.string().describe("The organization ID")}),execute:async({id:t})=>{let o=await e.GET("/v1/organizations/{slug}",{params:{path:{slug:t}}});return l(o,"Failed to fetch organization"),o.data}}),list_projects:E({description:"Lists all Supabase projects for the user. Use this to help discover the project ID of the project that the user is working on.",parameters:g.object({}),execute:async()=>{let t=await e.GET("/v1/projects");return l(t,"Failed to fetch projects"),t.data}}),get_project:E({description:"Gets details for a Supabase project.",parameters:g.object({id:g.string().describe("The project ID")}),execute:async({id:t})=>{let o=await e.GET("/v1/projects/{ref}",{params:{path:{ref:t}}});return l(o,"Failed to fetch project"),o.data}}),get_cost:E({description:"Gets the cost of creating a new project or branch. Never assume organization as costs can be different for each.",parameters:g.object({type:g.enum(["project","branch"]),organization_id:g.string().describe("The organization ID. Always ask the user.")}),execute:async({type:t,organization_id:o})=>{function n(s){return`The new ${t} will cost $${s.amount} ${s.recurrence}. You must repeat this to the user and confirm their understanding.`}switch(t){case"project":{let s=await C(e,o);return n(s)}case"branch":{let s=x();return n(s)}default:throw new Error(`Unknown cost type: ${t}`)}}}),confirm_cost:E({description:"Ask the user to confirm their understanding of the cost of creating a new project or branch. Call `get_cost` first. Returns a unique ID for this confirmation which should be passed to `create_project` or `create_branch`.",parameters:g.object({type:g.enum(["project","branch"]),recurrence:g.enum(["hourly","monthly"]),amount:g.number()}),execute:async t=>await A(t)}),create_project:E({description:"Creates a new Supabase project. Always ask the user which organization to create the project in. The project can take a few minutes to initialize - use `get_project` to check the status.",parameters:g.object({name:g.string().describe("The name of the project"),region:g.optional(g.enum(oe).describe("The region to create the project in. Defaults to the closest region.")),organization_id:g.string(),confirm_cost_id:g.string({required_error:"User must confirm understanding of costs before creating a project."}).describe("The cost confirmation ID. Call `confirm_cost` first.")}),execute:async({name:t,region:o,organization_id:n,confirm_cost_id:s})=>{let i=await C(e,n);if(await A(i)!==s)throw new Error("Cost confirmation ID does not match the expected cost of creating a project.");let p=await e.POST("/v1/projects",{body:{name:t,region:o??await r(),organization_id:n,db_pass:ae({length:16,numbers:!0,uppercase:!0,lowercase:!0})}});return l(p,"Failed to create project"),p.data}}),pause_project:E({description:"Pauses a Supabase project.",parameters:g.object({project_id:g.string()}),execute:async({project_id:t})=>{let o=await e.POST("/v1/projects/{ref}/pause",{params:{path:{ref:t}}});l(o,"Failed to pause project")}}),restore_project:E({description:"Restores a Supabase project.",parameters:g.object({project_id:g.string()}),execute:async({project_id:t})=>{let o=await e.POST("/v1/projects/{ref}/restore",{params:{path:{ref:t}},body:{}});l(o,"Failed to restore project")}})}}var{version:ce}=F;function hn(e){let r=e.platform.apiUrl??"https://api.supabase.com",t=e.projectId,o=e.readOnly,n;return He({name:"supabase",version:ce,onInitialize({clientInfo:i}){n=P(r,e.platform.accessToken,{"User-Agent":`supabase-mcp/${ce} (${i.name}/${i.version})`})},tools:()=>{let i={};return t||Object.assign(i,le({managementApiClient:n})),Object.assign(i,Y({managementApiClient:n,projectId:t,readOnly:o}),ne({managementApiClient:n,projectId:t}),Z({managementApiClient:n,projectId:t}),Q({managementApiClient:n,projectId:t}),H({managementApiClient:n,projectId:t})),i}})}export{F as a,hn as b};
+//# sourceMappingURL=chunk-UIHQUGMW.js.map

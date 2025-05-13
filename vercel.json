@@ -1,16 +1,15 @@
 {
   "version": 2,
   "builds": [
-   {
-    "src": "app.js",
-    "use": "@vercel/node",
-    "config": { "includeFiles": ["dist/**"] }
-   }
+    {
+      "src": "run_supabase_mcp_server.js",
+      "use": "@vercel/node"
+    }
   ],
   "routes": [
-   {
-    "src": "/(.*)",
-    "dest": "app.js"
-   }
+    {
+      "src": "/(.*)",
+      "dest": "run_supabase_mcp_server.js"
+    }
   ]
- }
+}

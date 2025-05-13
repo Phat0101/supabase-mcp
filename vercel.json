@@ -1,8 +1,16 @@
 {
   "version": 2,
-  "installCommand": "npm install",
   "buildCommand": "npm run build",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/run_supabase_mcp_server.js" }
+  "builds": [
+    {
+      "src": "run_supabase_mcp_server.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "run_supabase_mcp_server.js"
+    }
   ]
 }

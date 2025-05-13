@@ -1,0 +1,21 @@
+{
+  "workspaces": [
+    "packages/*"
+  ],
+  "name": "supabase-mcp",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build --workspace @supabase/mcp-utils --workspace @supabase/mcp-server-supabase",
+    "test": "npm run test --workspace @supabase/mcp-utils --workspace @supabase/mcp-server-supabase",
+    "test:coverage": "npm run test:coverage --workspace @supabase/mcp-server-supabase",
+    "start": "node run_supabase_mcp_server.js"
+  },
+  "devDependencies": {
+    "supabase": "^2.1.1"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.1",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2"
+  }
+}

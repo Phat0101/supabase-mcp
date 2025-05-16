@@ -61,7 +61,7 @@ app.get(serverSsePath, async (req, res) => {
       }
       return;
     }
-    
+
     activeSseTransports.set(sessionId, transport);
     console.log(`GET ${serverSsePath}: SSE transport created and stored for sessionId: ${sessionId}.`);
 
@@ -155,7 +155,7 @@ async function startLocalDevelopmentServer() {
     console.error("Local Server Aborted: McpServer could not be initialized. Is SUPABASE_ACCESS_TOKEN missing in your .env file?");
     process.exit(1);
   }
-  
+
   console.log('Configuring Supabase MCP Express Server for LOCAL DEVELOPMENT...');
   console.log(`  Server Port (local): ${localPort}`);
   console.log(`  SSE Connection Path: ${serverSsePath}`);
@@ -183,7 +183,7 @@ async function startLocalDevelopmentServer() {
       try { await mcpServer.close(); console.log('MCP server logic closed (local).'); }
       catch (e) { console.error('Error closing MCP server logic (local):', e); }
     }
-    
+
     httpServer.close(() => {
       console.log('HTTP server closed (local).');
       process.exit(0);
@@ -198,17 +198,17 @@ async function startLocalDevelopmentServer() {
 const __filename = fileURLToPath(import.meta.url);
 let isRunDirectly = false;
 if (process.argv[1]) {
-    try {
-        // Attempt to resolve process.argv[1] relative to CWD if it's not absolute
-        const scriptPath = process.argv[1].startsWith('/') || process.argv[1].includes('://') ? process.argv[1] : `${process.cwd()}/${process.argv[1]}`;
-        isRunDirectly = fileURLToPath(new URL(scriptPath.startsWith('file://') ? scriptPath : 'file://' + scriptPath).href) === __filename;
-    } catch (e) {
-        // Fallback: simple check if the script name matches (less reliable)
-        if (process.argv[1].endsWith('run_supabase_mcp_server.js')) {
-            isRunDirectly = true;
-        }
-        console.warn(`Could not reliably determine if script was run directly. Fallback used. Error: ${e.message}`);
+  try {
+    // Attempt to resolve process.argv[1] relative to CWD if it's not absolute
+    const scriptPath = process.argv[1].startsWith('/') || process.argv[1].includes('://') ? process.argv[1] : `${process.cwd()}/${process.argv[1]}`;
+    isRunDirectly = fileURLToPath(new URL(scriptPath.startsWith('file://') ? scriptPath : 'file://' + scriptPath).href) === __filename;
+  } catch (e) {
+    // Fallback: simple check if the script name matches (less reliable)
+    if (process.argv[1].endsWith('run_supabase_mcp_server.js')) {
+      isRunDirectly = true;
     }
+    console.warn(`Could not reliably determine if script was run directly. Fallback used. Error: ${e.message}`);
+  }
 }
 
 
@@ -219,5 +219,5 @@ if (isRunDirectly || process.env.RUN_LOCAL_SERVER === 'true') {
     process.exit(1);
   });
 } else {
-   console.log("Script imported as a module (e.g., by Vercel). Not starting local server. Exporting Express app.");
+  console.log("Script imported as a module (e.g., by Vercel). Not starting local server. Exporting Express app.");
 }

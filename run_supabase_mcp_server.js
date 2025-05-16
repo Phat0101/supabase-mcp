@@ -22,23 +22,34 @@ if (!accessToken) {
 
 const activeSseTransports = new Map();
 
-const mcpServer = accessToken ? createSupabaseMcpServer({
-  platform: {
-    accessToken,
-    apiUrl,
-  },
-  projectId: projectRef,
-  readOnly,
-}) : null;
+console.log("[MCP Server] Attempting to initialize mcpServer instance...");
+let mcpServerInstance; // Using a distinct variable name for clarity
+try {
+  mcpServerInstance = accessToken ? createSupabaseMcpServer({
+    platform: {
+      accessToken,
+      apiUrl,
+    },
+    projectId: projectRef,
+    readOnly,
+  }) : null;
 
-if (!mcpServer && accessToken) {
-  console.error("CRITICAL ERROR: Failed to create SupabaseMcpServer instance, though accessToken was present. Server will likely exit.");
+  if (accessToken && !mcpServerInstance) {
+    console.error("[MCP Server] CRITICAL ERROR: createSupabaseMcpServer returned null/falsy even though accessToken was present. This is unexpected and will cause server to abort.");
+  } else if (!accessToken) {
+    console.log("[MCP Server] mcpServer not initialized because SUPABASE_ACCESS_TOKEN is missing.");
+  } else {
+    console.log("[MCP Server] mcpServer instance seems to be created (or is null if no accessToken).");
+  }
+} catch (e) {
+  console.error("[MCP Server] CRITICAL EXCEPTION during createSupabaseMcpServer call:", e);
+  mcpServerInstance = null; // Ensure it's null on error
 }
 
-// --- Express Routes (ensure mcpServer is checked before use) ---
+// --- Express Routes (ensure mcpServerInstance is checked before use) ---
 app.get(serverSsePath, async (req, res) => {
-  if (!mcpServer) {
-    console.error(`GET ${serverSsePath}: McpServer not initialized. Critical env var (SUPABASE_ACCESS_TOKEN) likely missing.`);
+  if (!mcpServerInstance) {
+    console.error(`GET ${serverSsePath}: McpServer (mcpServerInstance) not initialized. Critical env var likely missing or createSupabaseMcpServer failed.`);
     return res.status(503).send("Service temporarily unavailable: server core component not initialized.");
   }
   console.log(`GET ${serverSsePath}: Incoming SSE connection request from ${req.ip}`);
@@ -63,7 +74,7 @@ app.get(serverSsePath, async (req, res) => {
       transport.close().catch(err => console.error(`Error closing transport for ${sessionId}:`, err));
     });
 
-    await mcpServer.connect(transport);
+    await mcpServerInstance.connect(transport);
     console.log(`GET ${serverSsePath}: McpServer connected to transport for sessionId: ${sessionId}. SSE stream established.`);
 
   } catch (error) {
@@ -75,8 +86,8 @@ app.get(serverSsePath, async (req, res) => {
 });
 
 app.post(serverMessagesPath, async (req, res) => {
-  if (!mcpServer) {
-    console.error(`POST ${serverMessagesPath}: McpServer not initialized. Critical env var (SUPABASE_ACCESS_TOKEN) likely missing.`);
+  if (!mcpServerInstance) {
+    console.error(`POST ${serverMessagesPath}: McpServer (mcpServerInstance) not initialized. Critical env var likely missing or createSupabaseMcpServer failed.`);
     return res.status(503).send("Service temporarily unavailable: server core component not initialized.");
   }
   const sessionId = req.query.sessionId;
@@ -108,52 +119,59 @@ app.post(serverMessagesPath, async (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error("Global Express error handler:", err);
+  console.error("[MCP Server] Global Express error handler:", err);
   if (!res.headersSent) {
     res.status(500).send("Internal Server Error");
   }
 });
 
 async function startServer() {
+  console.log("[MCP Server] startServer() function called.");
   const port = process.env.PORT || '3002';
 
-  if (!mcpServer) {
-    console.error("Server Aborted: McpServer could not be initialized. Is SUPABASE_ACCESS_TOKEN missing in your environment variables?");
-    process.exit(1); // Important to exit if server cannot start
+  if (!mcpServerInstance) {
+    console.error("[MCP Server] Server Aborted: mcpServerInstance is not initialized. Check previous logs for errors (e.g., SUPABASE_ACCESS_TOKEN missing or createSupabaseMcpServer failure).");
+    process.exit(1);
   }
 
-  console.log('Configuring Supabase MCP Express Server...');
-  console.log(`  Listening on host: 0.0.0.0`);
-  console.log(`  Server Port: ${port} (from process.env.PORT or default 3002)`);
+  console.log('[MCP Server] Configuring Supabase MCP Express Server for listening...');
+  console.log(`  Target Host: 0.0.0.0`);
+  console.log(`  Target Port: ${port} (from process.env.PORT or default 3002)`);
   console.log(`  SSE Connection Path: ${serverSsePath}`);
   console.log(`  Client Messages POST Path: ${serverMessagesPath}`);
   if (projectRef) console.log(`  Project Ref: ${projectRef}`);
   if (apiUrl) console.log(`  API URL: ${apiUrl}`);
   if (readOnly) console.log(`  Read-only: true`);
 
-  const httpServer = app.listen(Number(port), '0.0.0.0', () => { // Listen on 0.0.0.0
-    console.log(`Supabase MCP Express Server is live and listening on http://0.0.0.0:${port}`);
+  console.log("[MCP Server] Attempting to call app.listen()...");
+  const httpServer = app.listen(Number(port), '0.0.0.0', () => {
+    console.log(`[MCP Server] Supabase MCP Express Server is live and listening on http://0.0.0.0:${port}`);
+  });
+
+  httpServer.on('error', (err) => {
+    console.error('[MCP Server] HTTP Server Error (e.g., EADDRINUSE):', err);
+    process.exit(1);
   });
 
   const gracefulShutdown = async () => {
-    console.log('\nShutting down Supabase MCP Express server...');
+    console.log('\n[MCP Server] Shutting down Supabase MCP Express server...');
     activeSseTransports.forEach(async (transport, sessionId) => {
-      console.log(`Closing transport for session ${sessionId}...`);
-      try { await transport.close(); } catch (e) { console.error(`Error closing transport for session ${sessionId}`, e); }
+      console.log(`[MCP Server] Closing transport for session ${sessionId}...`);
+      try { await transport.close(); } catch (e) { console.error(`[MCP Server] Error closing transport for session ${sessionId}`, e); }
     });
     activeSseTransports.clear();
-    console.log('All active SSE transports closed.');
+    console.log('[MCP Server] All active SSE transports closed.');
 
-    if (mcpServer && mcpServer.close) {
-      try { await mcpServer.close(); console.log('MCP server logic closed.'); }
-      catch (e) { console.error('Error closing MCP server logic:', e); }
+    if (mcpServerInstance && mcpServerInstance.close) {
+      try { await mcpServerInstance.close(); console.log('[MCP Server] MCP server logic closed.'); }
+      catch (e) { console.error('[MCP Server] Error closing MCP server logic:', e); }
     }
     
     httpServer.close(() => {
-      console.log('HTTP server closed.');
+      console.log('[MCP Server] HTTP server closed.');
       process.exit(0);
     });
-    setTimeout(() => { console.error("Graceful shutdown timed out. Forcing exit."); process.exit(1); }, 10000);
+    setTimeout(() => { console.error("[MCP Server] Graceful shutdown timed out. Forcing exit."); process.exit(1); }, 10000);
   };
 
   process.on('SIGINT', gracefulShutdown);
@@ -161,7 +179,8 @@ async function startServer() {
 }
 
 // --- Main Execution ---
+console.log("[MCP Server] Preparing to call startServer() at the end of the script.");
 startServer().catch(error => {
-  console.error("Unhandled error in server main execution:", error);
+  console.error("[MCP Server] Unhandled error in server main execution (startServer promise rejection):", error);
   process.exit(1);
 });

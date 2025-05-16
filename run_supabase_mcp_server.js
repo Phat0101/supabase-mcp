@@ -1,11 +1,7 @@
-// run-supabase-mcp-sse-server.js
 import express from 'express';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-// Removed parseArgs for CLI as Railway relies on ENV VARS for port etc.
-// import { parseArgs } from 'node:util'; 
 import { createSupabaseMcpServer } from './packages/mcp-server-supabase/dist/index.js';
 import dotenv from 'dotenv';
-// import { fileURLToPath } from 'url'; // Not needed for the simplified startup
 
 dotenv.config(); 
 
@@ -118,9 +114,8 @@ app.use((err, req, res, next) => {
   }
 });
 
-// --- Server Startup Logic for Railway ---
 async function startServer() {
-  const port = process.env.PORT || '3002'; // Railway provides PORT
+  const port = process.env.PORT || '3002';
 
   if (!mcpServer) {
     console.error("Server Aborted: McpServer could not be initialized. Is SUPABASE_ACCESS_TOKEN missing in your environment variables?");
@@ -166,11 +161,7 @@ async function startServer() {
 }
 
 // --- Main Execution ---
-// Directly call startServer. The 'export default app' and 'isRunDirectly' check are removed.
 startServer().catch(error => {
   console.error("Unhandled error in server main execution:", error);
   process.exit(1);
 });
-
-// Removed: export default app;
-// Removed: The complex isRunDirectly check and conditional call to startLocalDevelopmentServer

@@ -1,0 +1,18 @@
+# nixpacks.toml
+
+# Add system packages needed for building native Node.js modules
+[phases.setup]
+aptPkgs = ["python3", "make", "g++"]
+
+# The default install command 'npm ci' is generally fine.
+# Nixpacks will use this after the setup phase.
+# [phases.install]
+# cmd = "npm ci" 
+
+# The default build command 'npm run build' from your package.json is fine.
+# [phases.build]
+# cmd = "npm run build"
+
+# The default start command 'npm run start' from your package.json is fine.
+# [start]
+# cmd = "npm run start" 

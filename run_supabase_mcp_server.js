@@ -1,12 +1,13 @@
 // run-supabase-mcp-sse-server.js
 import express from 'express';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { parseArgs } from 'node:util';
+// Removed parseArgs for CLI as Railway relies on ENV VARS for port etc.
+// import { parseArgs } from 'node:util'; 
 import { createSupabaseMcpServer } from './packages/mcp-server-supabase/dist/index.js';
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
+// import { fileURLToPath } from 'url'; // Not needed for the simplified startup
 
-dotenv.config(); // Load .env for local dev; Vercel uses its own env system
+dotenv.config(); 
 
 const app = express();
 app.use(express.json());
@@ -16,31 +17,26 @@ const accessToken = process.env.SUPABASE_ACCESS_TOKEN;
 const projectRef = process.env.SUPABASE_PROJECT_REF;
 const readOnly = process.env.SUPABASE_READ_ONLY === 'true';
 const apiUrl = process.env.SUPABASE_API_URL;
-// Vercel provides the PORT environment variable for the server to listen on.
-// For paths, we can use environment variables or keep defaults.
 const serverSsePath = process.env.SERVER_SSE_PATH || '/sse';
 const serverMessagesPath = process.env.SERVER_MESSAGES_PATH || '/mcp-messages';
 
 if (!accessToken) {
-  console.error('CRITICAL ERROR: SUPABASE_ACCESS_TOKEN environment variable is not set. The server may not function correctly.');
-  // For Vercel, if critical envs are missing, the deployment might fail or the function won't start healthy.
+  console.error('CRITICAL ERROR: SUPABASE_ACCESS_TOKEN environment variable is not set. The server may not function correctly and may exit.');
 }
 
 const activeSseTransports = new Map();
 
-// MCP Server Instance (shared by all connections)
-// Ensure this initialization doesn't fail silently if critical env vars are missing.
 const mcpServer = accessToken ? createSupabaseMcpServer({
   platform: {
     accessToken,
-    apiUrl, // createSupabaseMcpServer will use default if this is undefined
+    apiUrl,
   },
   projectId: projectRef,
   readOnly,
 }) : null;
 
 if (!mcpServer && accessToken) {
-  console.error("CRITICAL ERROR: Failed to create SupabaseMcpServer instance, though accessToken was present.");
+  console.error("CRITICAL ERROR: Failed to create SupabaseMcpServer instance, though accessToken was present. Server will likely exit.");
 }
 
 // --- Express Routes (ensure mcpServer is checked before use) ---
@@ -122,102 +118,59 @@ app.use((err, req, res, next) => {
   }
 });
 
-// --- Export the Express app for Vercel ---
-export default app;
-
-// --- Local Development Startup Logic ---
-// This function will be called only when running the script directly (e.g., `npm start`)
-async function startLocalDevelopmentServer() {
-  const {
-    values: {
-      cliAccessToken,
-      cliProjectId,
-      cliReadOnlyFromArgs = false,
-      cliApiUrl,
-      cliPort,
-    },
-  } = parseArgs({
-    options: {
-      'access-token': { type: 'string' },
-      'project-ref': { type: 'string' },
-      'read-only': { type: 'boolean' },
-      'api-url': { type: 'string' },
-      port: { type: 'string', short: 'p' },
-      'sse-path': { type: 'string' },
-      'messages-path': { type: 'string' },
-    },
-    allowPositionals: true,
-  });
-
-  const localPort = cliPort || process.env.PORT || '3002';
+// --- Server Startup Logic for Railway ---
+async function startServer() {
+  const port = process.env.PORT || '3002'; // Railway provides PORT
 
   if (!mcpServer) {
-    console.error("Local Server Aborted: McpServer could not be initialized. Is SUPABASE_ACCESS_TOKEN missing in your .env file?");
-    process.exit(1);
+    console.error("Server Aborted: McpServer could not be initialized. Is SUPABASE_ACCESS_TOKEN missing in your environment variables?");
+    process.exit(1); // Important to exit if server cannot start
   }
 
-  console.log('Configuring Supabase MCP Express Server for LOCAL DEVELOPMENT...');
-  console.log(`  Server Port (local): ${localPort}`);
+  console.log('Configuring Supabase MCP Express Server...');
+  console.log(`  Listening on host: 0.0.0.0`);
+  console.log(`  Server Port: ${port} (from process.env.PORT or default 3002)`);
   console.log(`  SSE Connection Path: ${serverSsePath}`);
   console.log(`  Client Messages POST Path: ${serverMessagesPath}`);
-  if (projectRef) console.log(`  Project Ref (effective): ${projectRef}`);
-  if (apiUrl) console.log(`  API URL (effective): ${apiUrl}`);
-  if (readOnly) console.log(`  Read-only (effective): true`);
+  if (projectRef) console.log(`  Project Ref: ${projectRef}`);
+  if (apiUrl) console.log(`  API URL: ${apiUrl}`);
+  if (readOnly) console.log(`  Read-only: true`);
 
-  const httpServer = app.listen(Number(localPort), () => {
-    console.log(`Supabase MCP Express Server is live locally on http://localhost:${localPort}`);
-    console.log(`SSE connections: GET http://localhost:${localPort}${serverSsePath}`);
-    console.log(`Client messages: POST http://localhost:${localPort}${serverMessagesPath}?sessionId=<your_session_id>`);
+  const httpServer = app.listen(Number(port), '0.0.0.0', () => { // Listen on 0.0.0.0
+    console.log(`Supabase MCP Express Server is live and listening on http://0.0.0.0:${port}`);
   });
 
   const gracefulShutdown = async () => {
-    console.log('\nShutting down Supabase MCP Express server (local)...');
+    console.log('\nShutting down Supabase MCP Express server...');
     activeSseTransports.forEach(async (transport, sessionId) => {
       console.log(`Closing transport for session ${sessionId}...`);
       try { await transport.close(); } catch (e) { console.error(`Error closing transport for session ${sessionId}`, e); }
     });
     activeSseTransports.clear();
-    console.log('All active SSE transports closed (local).');
+    console.log('All active SSE transports closed.');
 
     if (mcpServer && mcpServer.close) {
-      try { await mcpServer.close(); console.log('MCP server logic closed (local).'); }
-      catch (e) { console.error('Error closing MCP server logic (local):', e); }
+      try { await mcpServer.close(); console.log('MCP server logic closed.'); }
+      catch (e) { console.error('Error closing MCP server logic:', e); }
     }
-
+    
     httpServer.close(() => {
-      console.log('HTTP server closed (local).');
+      console.log('HTTP server closed.');
       process.exit(0);
     });
-    setTimeout(() => { console.error("Graceful shutdown timed out (local). Forcing exit."); process.exit(1); }, 10000);
+    setTimeout(() => { console.error("Graceful shutdown timed out. Forcing exit."); process.exit(1); }, 10000);
   };
 
   process.on('SIGINT', gracefulShutdown);
   process.on('SIGTERM', gracefulShutdown);
 }
 
-const __filename = fileURLToPath(import.meta.url);
-let isRunDirectly = false;
-if (process.argv[1]) {
-  try {
-    // Attempt to resolve process.argv[1] relative to CWD if it's not absolute
-    const scriptPath = process.argv[1].startsWith('/') || process.argv[1].includes('://') ? process.argv[1] : `${process.cwd()}/${process.argv[1]}`;
-    isRunDirectly = fileURLToPath(new URL(scriptPath.startsWith('file://') ? scriptPath : 'file://' + scriptPath).href) === __filename;
-  } catch (e) {
-    // Fallback: simple check if the script name matches (less reliable)
-    if (process.argv[1].endsWith('run_supabase_mcp_server.js')) {
-      isRunDirectly = true;
-    }
-    console.warn(`Could not reliably determine if script was run directly. Fallback used. Error: ${e.message}`);
-  }
-}
+// --- Main Execution ---
+// Directly call startServer. The 'export default app' and 'isRunDirectly' check are removed.
+startServer().catch(error => {
+  console.error("Unhandled error in server main execution:", error);
+  process.exit(1);
+});
 
-
-if (isRunDirectly || process.env.RUN_LOCAL_SERVER === 'true') {
-  console.log("Script identified as run directly or RUN_LOCAL_SERVER is true. Starting local server...");
-  startLocalDevelopmentServer().catch(error => {
-    console.error("Unhandled error in local server main execution:", error);
-    process.exit(1);
-  });
-} else {
-  console.log("Script imported as a module (e.g., by Vercel). Not starting local server. Exporting Express app.");
-}
+// Removed: export default app;
+// Removed: The complex isRunDirectly check and conditional call to startLocalDevelopmentServer
